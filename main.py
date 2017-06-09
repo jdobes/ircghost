@@ -19,6 +19,7 @@ logging.basicConfig(filename='./ircghost.log', level=level)
 
 user_aliases = {}
 user_threads = {}
+alias_to_user_channel = {}
 
 
 def connect(nick):
@@ -85,13 +86,15 @@ class IrcThread(Thread):
         finish(self.sock)
 
 
-def thread_send(sock, name_from, msgs):
+def thread_send(sock, name_from, name_to, msgs):
     if name_from not in user_threads or not user_threads[name_from].isAlive():
         if name_from not in user_aliases:
             new_user = config['karma_user_prefix'] + str(len(user_aliases))
             user_aliases[name_from] = new_user
         else:
             new_user = user_aliases[name_from]
+        # Save reference between user alias and original channel/user where the message was catched
+        alias_to_user_channel[new_user] = name_to
         new_thread = IrcThread(new_user, msgs)
         new_thread.setDaemon(True)
         new_thread.start()
@@ -103,8 +106,9 @@ def thread_send(sock, name_from, msgs):
 def main():
     bot = connect(config['botnick'])
     joinchan(bot, config['home_channel'])
-    if config['channel']:
-        joinchan(bot, config['channel'])
+    channels = config['channels'].split()
+    for channel in channels:
+        joinchan(bot, channel)
     try:
         while 1:
             ircmsg = bot.recv(2048).decode("UTF-8")
@@ -112,13 +116,15 @@ def main():
             parts = ircmsg.split()
             if parts[1] == "PRIVMSG":
                 name_from = ircmsg.split('!', 1)[0][1:]
+                name_to = ircmsg.split('PRIVMSG ', 1)[1].split(' :', 1)[0]
                 message = ircmsg.split('PRIVMSG', 1)[1].split(':', 1)[1]
                 words = message.split()
-                # Repeat response from contact
+                # Repeat response from child threads to original channel/user
                 if name_from in user_aliases.values():
-                    sendmsg(bot, message, config['home_channel'])
-                # Regular chat message, parse (but not from contact itself if he is in channel)
-                elif name_from != config['ask']:
+                    sendmsg(bot, message, alias_to_user_channel[name_from])
+                    alias_to_user_channel[name_from] = ""
+                # Regular chat message, parse if it's sane
+                elif name_from != config['ask'] and (name_to in channels or name_to == config['home_channel']):
                     filtered_msgs = []
                     for i, word in enumerate(words):
                         if word in ("rank", "srank") and i < (len(words) - 1):
@@ -126,7 +132,7 @@ def main():
                         elif word.endswith("++") or word.endswith("--"):
                             filtered_msgs.append(word)
                     if filtered_msgs:
-                        thread_send(bot, name_from, filtered_msgs)
+                        thread_send(bot, name_from, name_to, filtered_msgs)
             elif parts[0] == "PING":
                     pong(bot, parts[1])
     except KeyboardInterrupt:
