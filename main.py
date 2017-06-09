@@ -10,7 +10,12 @@ config = configparser.ConfigParser()
 config.read("./config.ini")
 config = config['DEFAULT']
 
-logging.basicConfig(filename='./ircghost.log', level=logging.INFO)
+if int(config['log_debug'] or 0):
+    level = logging.DEBUG
+else:
+    level = logging.INFO
+
+logging.basicConfig(filename='./ircghost.log', level=level)
 
 user_aliases = {}
 user_threads = {}
@@ -39,7 +44,7 @@ def pong(sock, to):
 
 def sendmsg(sock, msg, target):
     request = "PRIVMSG " + target + " :" + msg + "\r\n"
-    logging.info(request)
+    logging.debug("Sending: " + request)
     sock.send(bytes(request, "UTF-8"))
 
 
@@ -104,11 +109,9 @@ def main():
         while 1:
             ircmsg = bot.recv(2048).decode("UTF-8")
             ircmsg = ircmsg.strip('\n\r')
-            logging.debug(ircmsg)
             parts = ircmsg.split()
             if parts[1] == "PRIVMSG":
                 name_from = ircmsg.split('!', 1)[0][1:]
-                name_to = ircmsg.split('PRIVMSG ', 1)[1].split(' :', 1)[0]
                 message = ircmsg.split('PRIVMSG', 1)[1].split(':', 1)[1]
                 words = message.split()
                 # Repeat response from contact
